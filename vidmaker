@@ -3,6 +3,9 @@
 import sys
 import os
 import json
+import time
+import datetime
+import subprocess
 
 from decimal import *
 
@@ -18,6 +21,8 @@ def songs_exist(songs):
     return found_all
 
 def main(manifest):
+    start = time.time()
+
     manifest["songs"] = [os.path.join("songs", song) for song in manifest["songs"]]
 
     if not songs_exist(manifest["songs"]):
@@ -32,43 +37,58 @@ def main(manifest):
 
     print(f"Encoding {len(manifest['songs'])} songs...")
 
-    video = ffmpeg.input(os.path.join(cwd, bg_image_name), loop=1, r=1)
+    video = (
+        ffmpeg
+            .input(os.path.join(cwd, bg_image_name), framerate=1, loop=1)
+            .filter("scale", width=1920, height=1080)
+    )
+    
     duration = Decimal(0)
+
+    track_list_file = open("track_list.txt", "w")
 
     audio_streams = []
     for song in manifest["songs"]:
         full_path = os.path.join(cwd, song)
         name = song[song.find('/')+1:song.rfind('.')]
+
         audio_info = ffmpeg.probe(full_path)
-        song_duration = Decimal(audio_info["format"]["duration"])
+        song_duration = Decimal(audio_info["streams"][0]["duration"])
         
         prev_duration = duration
         duration += song_duration
 
-        audio_streams.append(ffmpeg.input(full_path))
-        video = video.drawtext(name, enable=f"between(t,{prev_duration},{duration})", fontsize=28, x="w-tw-16", y = "h-th-16", fontcolor="white")
+        song = (
+            ffmpeg
+                .input(full_path)
+                .filter("volume", volume="0dB")
+                .filter("volume", volume="0.5")
+        )
 
-    video = video.filter("fps", fps=15)
+        audio_streams.append(song)
+        video = video.drawtext(name, enable=f"gte(t, {prev_duration})*lt(t, {duration})", fontsize=24, x="w-tw-16", y="16", fontcolor="red")
+
+        track_list_file.write(f"{datetime.timedelta(seconds=int(prev_duration))} - {datetime.timedelta(seconds=int(duration))}  ::  {name}\n")
+
+    track_list_file.close()
+
     audio = ffmpeg.concat(*audio_streams, a=1, v=0)
 
-    jobs = [
-        # audio.output("out_audio.m4a").run_async(),
-        video.output("out_video.mp4", vcodec="libx264", preset="veryfast", t=duration, r=15).run_async()
-    ]
-    for job in jobs:
-        job.wait()
-
-    os.system("ffmpeg -i out_video.mp4 -i out_audio.m4a -preset veryfast out.mp4")
+    (
+        ffmpeg
+            .output(video, audio, "out.mp4", vcodec="libx264", crf="26", t=duration, r=10)
+            .overwrite_output()
+            .run()
+    )
 
     print(u"\u001b[0m")
 
-    # print(duration)
-    # print(ffmpeg.probe("out_audio.m4a")["format"]["duration"])
-    # print(ffmpeg.probe("out_video.mp4")["format"]["duration"])
-    # print(ffmpeg.probe("out.mp4")["format"]["duration"])
-
-    # os.remove("out_audio.m4a")
-    # os.remove("out_video.mp4")
+    real_duration = Decimal(ffmpeg.probe("out.mp4")["format"]["duration"])
+    print(f"Calculated: {duration}")
+    print(f"Actual:     {real_duration}")
+    print(f"Difference: {abs(duration - real_duration)}")
+    print()
+    print(f"Finished in {datetime.timedelta(seconds=(time.time() - start))} seconds")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
