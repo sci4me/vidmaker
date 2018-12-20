@@ -11,7 +11,7 @@ from decimal import *
 
 import ffmpeg
 
-FRAMERATE=5
+FRAMERATE=1
 
 def songs_exist(songs):
     found_all = True
@@ -22,22 +22,38 @@ def songs_exist(songs):
             found_all = False
     return found_all
 
+def warn_extra_files(songs, path):
+    for file in os.listdir(path):
+        full = f"{path}/{file}"
+        partial = f"songs/{file}"
+        if partial not in songs:
+            print(f"Warning: '{file}' not in manifest!")
+
 def main(manifest):
     start = time.time()
+    cwd = os.getcwd()
 
     manifest["songs"] = [os.path.join("songs", song) for song in manifest["songs"]]
+
+    warn_extra_files(manifest["songs"], f"{cwd}/songs")
 
     if not songs_exist(manifest["songs"]):
         sys.exit(1)
 
-    cwd = os.getcwd()
-
+    out_name = f"{manifest['name']}.mp4"
     bg_image_name = manifest["background-image"]
+
     if not os.path.isfile(os.path.join(cwd, bg_image_name)):
         print(f"File not found: {bg_image_name}")
         sys.exit(1)
 
-    print(f"Encoding {len(manifest['songs'])} songs...")
+    print(f"Found {len(manifest['songs'])} songs...")
+
+    print("Would you like to continue? y/n")
+    c = sys.stdin.read(1)
+    if c != 'y' and c != 'Y':
+        print("Exiting...")
+        sys.exit(0)
 
     video = (
         ffmpeg
@@ -71,7 +87,7 @@ def main(manifest):
         end_frame = (duration * FRAMERATE).to_integral_exact(rounding=ROUND_FLOOR)
 
         audio_streams.append(song)
-        video = video.drawtext(name, enable=f"gte(n, {start_frame})*lt(n, {end_frame})", fontsize=24, x="w-tw-16", y="16", fontcolor="red", escape_text=False)
+        video = video.drawtext(name, enable=f"gte(n, {start_frame})*lt(n, {end_frame})", fontsize=24, x="w-tw-16", y="h-th-16", fontcolor="red", escape_text=False)
 
         track_list_file.write(f"{datetime.timedelta(seconds=int(prev_duration))} - {datetime.timedelta(seconds=int(duration))}  ::  {name}\n")
 
@@ -81,14 +97,14 @@ def main(manifest):
 
     (
         ffmpeg
-            .output(video, audio, "out.mp4", vcodec="libx264", crf="26", t=duration, r=FRAMERATE)
+            .output(video, audio, out_name, vcodec="libx264", preset="ultrafast", crf="27", t=duration, r=FRAMERATE)
             .overwrite_output()
             .run()
     )
 
     print(u"\u001b[0m")
 
-    real_duration = Decimal(ffmpeg.probe("out.mp4")["format"]["duration"])
+    real_duration = Decimal(ffmpeg.probe(out_name)["format"]["duration"])
     print(f"Calculated: {duration}")
     print(f"Actual:     {real_duration}")
     print(f"Difference: {abs(duration - real_duration)}")
@@ -97,7 +113,7 @@ def main(manifest):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print(f"Usage: {os.path.basename(sys.argv[0])}")
+        print(f"Usage: {os.path.basename(sys.argv[0])} <manifest>")
         sys.exit(1)
     else:
         fp = sys.argv[1]
