@@ -63,7 +63,8 @@ def main(manifest):
     
     duration = Decimal(0)
 
-    track_list_file = open("track_list.txt", "w")
+    times = []
+    names = []
 
     audio_streams = []
     for song in manifest["songs"]:
@@ -76,12 +77,7 @@ def main(manifest):
         prev_duration = duration
         duration += song_duration
 
-        song = (
-            ffmpeg
-                .input(full_path)
-                .filter("volume", volume="0dB")
-                .filter("volume", volume="0.5")
-        )
+        song = ffmpeg.input(full_path)
 
         start_frame = (prev_duration * FRAMERATE).to_integral_exact(rounding=ROUND_FLOOR)
         end_frame = (duration * FRAMERATE).to_integral_exact(rounding=ROUND_FLOOR)
@@ -89,15 +85,21 @@ def main(manifest):
         audio_streams.append(song)
         video = video.drawtext(name, enable=f"gte(n, {start_frame})*lt(n, {end_frame})", fontsize=24, x="w-tw-16", y="h-th-16", fontcolor="red", escape_text=False)
 
-        track_list_file.write(f"{datetime.timedelta(seconds=int(prev_duration))} - {datetime.timedelta(seconds=int(duration))}  ::  {name}\n")
+        times.append(f"{datetime.timedelta(seconds=int(prev_duration))} - {datetime.timedelta(seconds=int(duration))}")
+        names.append(name)
 
+    track_list_file = open("track_list.txt", "w")
+    maxlen = len(max(times, key=len))
+    for i in range(0, len(times)):
+        track_time = times[i] + ' ' * (maxlen - len(times[i]))
+        track_list_file.write(f"{track_time}  ::  {names[i]}\n")
     track_list_file.close()
 
     audio = ffmpeg.concat(*audio_streams, a=1, v=0)
 
     (
         ffmpeg
-            .output(video, audio, out_name, vcodec="libx264", preset="ultrafast", crf="27", t=duration, r=FRAMERATE)
+            .output(video, audio, out_name, vcodec="libx264", preset="veryslow", t=duration, r=FRAMERATE)
             .overwrite_output()
             .run()
     )
@@ -110,6 +112,8 @@ def main(manifest):
     print(f"Difference: {abs(duration - real_duration)}")
     print()
     print(f"Finished in {datetime.timedelta(seconds=(time.time() - start))} seconds")
+
+    os.system("stty sane")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
